@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:get/get.dart';
 import 'package:camera/camera.dart';
+import 'package:get/get_rx/get_rx.dart';
+import 'package:get/get_rx/src/rx_types/rx_types.dart';
+import 'package:get/state_manager.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:tflite_v2/tflite_v2.dart';
@@ -15,8 +18,8 @@ class GestureVideoController extends GetxController {
   bool pausedetecting = false;
   bool isDetecting = false;
   bool isCameraInitialized = false;
-  var isVideoInitialized = false.obs;
-  bool isVideoPlaying = true;
+  RxBool isVideoInitialized = false.obs;
+   RxBool isVideoPlaying = true.obs;
   bool isGestureDetected = false;
   bool speechEnable = false;
   String wordSpoken = '';
@@ -27,6 +30,9 @@ class GestureVideoController extends GetxController {
     // Add more mappings as needed
   };
   bool ttsmessagesent=false;
+  RxBool isTtsActive=false.obs;
+   RxBool isSstActive=false.obs;
+   RxString recognizedWords=''.obs;
 FlutterTts flutterTts=FlutterTts();
   final SpeechToText speechToText = SpeechToText();
 
@@ -55,7 +61,11 @@ FlutterTts flutterTts=FlutterTts();
 
 void speakMessage(String message) async {
   try {
+    isTtsActive.value=true;
     await flutterTts.speak(message);
+    flutterTts.setCompletionHandler((){
+       isTtsActive.value=false;
+    });
   } catch (e) {
     print('Error speaking message: $e');
   }
@@ -67,24 +77,29 @@ void initSpeech() async {
 
   void _startListening() async {
     try {
+      isSstActive.value=true;
       await Future.delayed(Duration(seconds: 2));
       await speechToText.listen(onResult: _onSpeechResult);
     } catch (e) {
       print('Error starting speech recognition: $e');
+      isSstActive.value=false;
     }
   }
 
   void _stopListening() async {
     try {
       await speechToText.stop();
+      isSstActive.value=false;
     } catch (e) {
       print('Error stopping speech recognition: $e');
+      isSstActive.value=false;
     }
   }
 
   void _onSpeechResult(SpeechRecognitionResult result) {
     try {
       wordSpoken = result.recognizedWords;
+      recognizedWords.value=wordSpoken;
       print('Recognized words: $wordSpoken'); // Print the recognized words
     } catch (e) {
       print('Error processing speech result: $e');
@@ -158,7 +173,7 @@ void initSpeech() async {
   isCameraInitialized = true;
 
   // Introduce a delay before starting image stream to avoid immediate gesture detection
-  await Future.delayed(Duration(seconds: 2));
+  await Future.delayed(const Duration(seconds: 2));
 
   cameraController.startImageStream((imageStream) {
     if (!isDetecting) {
@@ -222,9 +237,9 @@ void initSpeech() async {
             }
 
             // Control the video based on detected gestures
-            if (pausedetecting && isVideoPlaying) {
+            if (pausedetecting && isVideoPlaying.value) {
               videoController.pause();
-              isVideoPlaying = false;
+              isVideoPlaying.value = false;
               isGestureDetected = true;
               print('Video paused');
             }
@@ -262,6 +277,18 @@ void initSpeech() async {
       videoController.play();
       update();
     });
+
+  }
+
+   void toggleVideoPlayback() {
+    if (videoController.value.isPlaying) {
+      videoController.pause();
+      isVideoPlaying.value = false;
+    } else {
+      videoController.play();
+      isVideoPlaying.value = true;
+    }
+    update();
   }
 
   @override
