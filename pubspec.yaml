@@ -43,6 +43,7 @@ dependencies:
   get: ^4.6.6
   flutter_tts: ^4.0.2
   avatar_glow: ^3.0.1
+  youtube_player_flutter: 8.1.2
 
 dev_dependencies:
   flutter_test:

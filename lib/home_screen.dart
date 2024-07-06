@@ -1,3 +1,4 @@
+import 'package:ai_tutor/widget/snackbar_content.dart';
 import 'package:awesome_dialog/awesome_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -15,11 +16,13 @@ class GestureVideoController extends GetxController {
   late CameraController cameraController;
   late VideoPlayerController videoController;
   CameraImage? cameraImage;
+  bool playGestureDetected = false;
+  bool pauseGestureDetected = false;
   bool pausedetecting = false;
   bool isDetecting = false;
   bool isCameraInitialized = false;
   RxBool isVideoInitialized = false.obs;
-   RxBool isVideoPlaying = true.obs;
+  RxBool isVideoPlaying = true.obs;
   bool isGestureDetected = false;
   bool speechEnable = false;
   String wordSpoken = '';
@@ -29,11 +32,13 @@ class GestureVideoController extends GetxController {
     1: 'pause',
     // Add more mappings as needed
   };
-  bool ttsmessagesent=false;
-  RxBool isTtsActive=false.obs;
-   RxBool isSstActive=false.obs;
-   RxString recognizedWords=''.obs;
-FlutterTts flutterTts=FlutterTts();
+  bool ttsmessagesent = false;
+  RxBool isTtsActive = false.obs;
+  RxBool isSstActive = false.obs;
+  RxString recognizedWords = ''.obs;
+  bool isCooldown = false;
+  final int cooldownDuration = 2; // Cooldown duration in seconds
+  FlutterTts flutterTts = FlutterTts();
   final SpeechToText speechToText = SpeechToText();
 
   @override
@@ -49,64 +54,62 @@ FlutterTts flutterTts=FlutterTts();
   }
 
   void initTTS() async {
-  try {
-    var voices = await flutterTts.getVoices;
-    print(voices); // Debugging purposes
-    await flutterTts.setLanguage('en-US'); // Set the language
-    //await flutterTts.speak('Hello World'); // Test speaking
-  } catch (e) {
-    print(e);
+    try {
+      var voices = await flutterTts.getVoices;
+      print(voices); // Debugging purposes
+      await flutterTts.setLanguage('en-US'); // Set the language
+      //await flutterTts.speak('Hello World'); // Test speaking
+    } catch (e) {
+      print(e);
+    }
   }
-}
 
-void speakMessage(String message) async {
-  try {
-    isTtsActive.value=true;
-    await flutterTts.speak(message);
-    flutterTts.setCompletionHandler((){
-       isTtsActive.value=false;
-    });
-  } catch (e) {
-    print('Error speaking message: $e');
+  void speakMessage(String message) async {
+    try {
+      isTtsActive.value = true;
+      await flutterTts.speak(message);
+      flutterTts.setCompletionHandler(() {
+        isTtsActive.value = false;
+      });
+    } catch (e) {
+      print('Error speaking message: $e');
+    }
   }
-}
 
-void initSpeech() async {
+  void initSpeech() async {
     speechEnable = await speechToText.initialize();
   }
 
   void _startListening() async {
     try {
-      isSstActive.value=true;
+      isSstActive.value = true;
       await Future.delayed(Duration(seconds: 2));
       await speechToText.listen(onResult: _onSpeechResult);
     } catch (e) {
       print('Error starting speech recognition: $e');
-      isSstActive.value=false;
+      isSstActive.value = false;
     }
   }
 
   void _stopListening() async {
     try {
       await speechToText.stop();
-      isSstActive.value=false;
+      isSstActive.value = false;
     } catch (e) {
       print('Error stopping speech recognition: $e');
-      isSstActive.value=false;
+      isSstActive.value = false;
     }
   }
 
   void _onSpeechResult(SpeechRecognitionResult result) {
     try {
       wordSpoken = result.recognizedWords;
-      recognizedWords.value=wordSpoken;
+      recognizedWords.value = wordSpoken;
       print('Recognized words: $wordSpoken'); // Print the recognized words
     } catch (e) {
       print('Error processing speech result: $e');
     }
   }
-
-
 
   showInitializationDialog() async {
     AwesomeDialog dialog = AwesomeDialog(
@@ -152,40 +155,39 @@ void initSpeech() async {
     dialog.show();
   }
 
- Future<bool> initializeCamera() async {
-  List<CameraDescription> cameras = await availableCameras();
+  Future<bool> initializeCamera() async {
+    List<CameraDescription> cameras = await availableCameras();
 
-  // Use front camera for gesture detection
-  CameraDescription? frontCamera;
-  for (CameraDescription camera in cameras) {
-    if (camera.lensDirection == CameraLensDirection.front) {
-      frontCamera = camera;
-      break;
+    // Use front camera for gesture detection
+    CameraDescription? frontCamera;
+    for (CameraDescription camera in cameras) {
+      if (camera.lensDirection == CameraLensDirection.front) {
+        frontCamera = camera;
+        break;
+      }
     }
+
+    cameraController = CameraController(
+      frontCamera!,
+      ResolutionPreset.high,
+    );
+
+    await cameraController.initialize();
+    isCameraInitialized = true;
+
+    // Introduce a delay before starting image stream to avoid immediate gesture detection
+    await Future.delayed(const Duration(seconds: 2));
+
+    cameraController.startImageStream((imageStream) {
+      if (!isDetecting) {
+        isDetecting = true;
+        cameraImage = imageStream;
+        runModelOnFrame();
+      }
+    });
+
+    return true; // Return true to indicate successful initialization
   }
-
-  cameraController = CameraController(
-    frontCamera!,
-    ResolutionPreset.high,
-  );
-
-  await cameraController.initialize();
-  isCameraInitialized = true;
-
-  // Introduce a delay before starting image stream to avoid immediate gesture detection
-  await Future.delayed(const Duration(seconds: 2));
-
-  cameraController.startImageStream((imageStream) {
-    if (!isDetecting) {
-      isDetecting = true;
-      cameraImage = imageStream;
-      runModelOnFrame();
-    }
-  });
-
-  return true; // Return true to indicate successful initialization
-}
-
 
   loadModel() async {
     try {
@@ -221,18 +223,30 @@ void initSpeech() async {
         if (recognitions != null && recognitions.isNotEmpty) {
           recognitions.forEach((element) {
             int index =
-                element['index']; // Assuming your model outputs an index
+                element['index']!; // Assuming your model outputs an index
             String label = labelIndexToLabel[index] ?? 'unknown gesture';
             double confidence = element['confidence'];
             print('Gesture recognized: $label');
 
             // Removed play detection logic here
 
+            if (label == 'play' && confidence > 0.8 && !playGestureDetected) {
+              pausedetecting = false;
+              playGestureDetected = true;
+
+              videoController.play();
+              isVideoPlaying.value = true;
+              print('Video played');
+              startCooldown();
+            }
+
             // Only detect pause gesture now
             if (label == 'pause' && confidence > 0.8 && !ttsmessagesent) {
               pausedetecting = true;
+              pauseGestureDetected = true;
               speakMessage('hello how can i help you');
-              ttsmessagesent=true;
+              ttsmessagesent = true;
+
               _startListening();
             }
 
@@ -242,6 +256,30 @@ void initSpeech() async {
               isVideoPlaying.value = false;
               isGestureDetected = true;
               print('Video paused');
+
+              startCooldown();
+              Get.snackbar('', '',
+                  snackPosition: SnackPosition.BOTTOM,
+                  boxShadows: [
+                    BoxShadow(
+                        color: Colors.black26,
+                        spreadRadius: 1,
+                        blurRadius: 10,
+                        offset: Offset(0, 3))
+                  ],
+                  animationDuration: Duration(milliseconds: 500),
+                  forwardAnimationCurve: Curves.easeInOut,
+                  reverseAnimationCurve: Curves.easeOut,  
+                  backgroundColor: Color.fromARGB(255, 137, 209, 243),
+                  duration: Duration(seconds: 10),
+                  isDismissible: true,
+                  borderRadius: 10,
+                  margin: EdgeInsets.all(10),
+                  messageText: Container(
+                    width: double.infinity,
+                    height: MediaQuery.of(Get.context!).size.height * 0.4,
+                    child: SnackbarContent(),
+                  ));
             }
           });
         } else {
@@ -258,12 +296,15 @@ void initSpeech() async {
     }
   }
 
- void initializeVideoPlayer() {
-    videoController = VideoPlayerController.networkUrl(
-      Uri.parse(
-          'https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4'),
-    );
+  void startCooldown() {
+    isCooldown = true;
+    Future.delayed(Duration(seconds: cooldownDuration), () {
+      isCooldown = false;
+    });
+  }
 
+  void initializeVideoPlayer() {
+    videoController = VideoPlayerController.asset('assets/video1.mp4');
     videoController.addListener(() {
       if (videoController.value.hasError) {
         print(
@@ -277,10 +318,9 @@ void initSpeech() async {
       videoController.play();
       update();
     });
-
   }
 
-   void toggleVideoPlayback() {
+  void toggleVideoPlayback() {
     if (videoController.value.isPlaying) {
       videoController.pause();
       isVideoPlaying.value = false;
