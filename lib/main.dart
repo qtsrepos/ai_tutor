@@ -1,10 +1,10 @@
-import 'package:ai_tutor/home.dart';
+import 'package:ai_tutor/screens/home/home.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 void main() {
   runApp(MyApp());
-}
+} 
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});

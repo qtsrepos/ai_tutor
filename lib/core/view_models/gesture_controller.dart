@@ -1,4 +1,4 @@
-import 'package:ai_tutor/widget/snackbar_content.dart';
+import 'package:ai_tutor/core/widget/snackbar_content.dart';
 import 'package:awesome_dialog/awesome_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -175,18 +175,32 @@ class GestureVideoController extends GetxController {
     await cameraController.initialize();
     isCameraInitialized = true;
 
-    // Introduce a delay before starting image stream to avoid immediate gesture detection
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      await cameraController.initialize();
+      print("Camera initialized successfully");
+      isCameraInitialized = true;
 
-    cameraController.startImageStream((imageStream) {
-      if (!isDetecting) {
-        isDetecting = true;
-        cameraImage = imageStream;
-        runModelOnFrame();
+      // Introduce a delay before starting image stream to avoid immediate gesture detection
+      await Future.delayed(const Duration(seconds: 2));
+
+      // Display the camera feed for debugging
+      if (cameraController.value.isInitialized) {
+        print("Camera feed is ready to be displayed.");
       }
-    });
 
-    return true; // Return true to indicate successful initialization
+      cameraController.startImageStream((imageStream) {
+        if (!isDetecting) {
+          isDetecting = true;
+          cameraImage = imageStream;
+          runModelOnFrame();
+        }
+      });
+
+      return true; // Return true to indicate successful initialization
+    } catch (e) {
+      print("Error initializing camera: $e");
+      return false;
+    } // Return true to indicate successful initialization
   }
 
   loadModel() async {
@@ -269,8 +283,8 @@ class GestureVideoController extends GetxController {
                   ],
                   animationDuration: Duration(milliseconds: 500),
                   forwardAnimationCurve: Curves.easeInOut,
-                  reverseAnimationCurve: Curves.easeOut,  
-                  backgroundColor: Color.fromARGB(255, 137, 209, 243),
+                  reverseAnimationCurve: Curves.easeOut,
+                  backgroundColor: Color.fromRGBO(167, 181, 185, 53),
                   duration: Duration(seconds: 10),
                   isDismissible: true,
                   borderRadius: 10,
