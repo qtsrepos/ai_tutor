@@ -4,9 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:get/get.dart';
 import 'package:camera/camera.dart';
-import 'package:get/get_rx/get_rx.dart';
-import 'package:get/get_rx/src/rx_types/rx_types.dart';
-import 'package:get/state_manager.dart';
+
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:tflite_v2/tflite_v2.dart';
@@ -16,28 +14,26 @@ class GestureVideoController extends GetxController {
   late CameraController cameraController;
   late VideoPlayerController videoController;
   CameraImage? cameraImage;
-  bool playGestureDetected = false;
-  bool pauseGestureDetected = false;
-  bool pausedetecting = false;
-  bool isDetecting = false;
-  bool isCameraInitialized = false;
+  RxBool isDetecting = false.obs;
+  RxBool isCameraInitialized = false.obs;
   RxBool isVideoInitialized = false.obs;
   RxBool isVideoPlaying = true.obs;
-  bool isGestureDetected = false;
-  bool speechEnable = false;
-  String wordSpoken = '';
-  double confidenceLevel = 0;
+  RxBool isGestureDetected = false.obs;
+  RxBool speechEnable = false.obs;
+  RxString wordSpoken = ''.obs;
+
   Map<int, String> labelIndexToLabel = {
-    0: 'play',
-    1: 'pause',
+    0: 'pause',
+    1: 'play',
+    2: 'nothing'
     // Add more mappings as needed
   };
-  bool ttsmessagesent = false;
+  RxBool ttsMessageSent = false.obs;
   RxBool isTtsActive = false.obs;
   RxBool isSstActive = false.obs;
   RxString recognizedWords = ''.obs;
-  bool isCooldown = false;
-  final int cooldownDuration = 2; // Cooldown duration in seconds
+  RxString label = ''.obs;
+  double confidence = 0;
   FlutterTts flutterTts = FlutterTts();
   final SpeechToText speechToText = SpeechToText();
 
@@ -58,40 +54,42 @@ class GestureVideoController extends GetxController {
       var voices = await flutterTts.getVoices;
       print(voices); // Debugging purposes
       await flutterTts.setLanguage('en-US'); // Set the language
-      //await flutterTts.speak('Hello World'); // Test speaking
     } catch (e) {
       print(e);
     }
   }
 
-  void speakMessage(String message) async {
-    try {
-      isTtsActive.value = true;
-      await flutterTts.speak(message);
-      flutterTts.setCompletionHandler(() {
-        isTtsActive.value = false;
-      });
-    } catch (e) {
-      print('Error speaking message: $e');
-    }
+  Future<void> speakMessage(String message) async {
+  try {
+    isTtsActive.value = true;
+    await flutterTts.speak(message);
+    return Future.delayed(Duration(milliseconds: 500)); // Add a small delay after speaking
+  } catch (e) {
+    print('Error speaking message: $e');
+  } finally {
+    isTtsActive.value = false;
+    ttsMessageSent.value = false;
   }
+}
 
   void initSpeech() async {
-    speechEnable = await speechToText.initialize();
+    speechEnable.value = await speechToText.initialize();
   }
 
-  void _startListening() async {
+   _startListening() async {
     try {
       isSstActive.value = true;
       await Future.delayed(Duration(seconds: 2));
       await speechToText.listen(onResult: _onSpeechResult);
+       await Future.delayed(Duration(seconds: 7));  // Adjust timeout as needed
+    await _stopListening();
     } catch (e) {
       print('Error starting speech recognition: $e');
       isSstActive.value = false;
     }
   }
 
-  void _stopListening() async {
+   _stopListening() async {
     try {
       await speechToText.stop();
       isSstActive.value = false;
@@ -103,8 +101,8 @@ class GestureVideoController extends GetxController {
 
   void _onSpeechResult(SpeechRecognitionResult result) {
     try {
-      wordSpoken = result.recognizedWords;
-      recognizedWords.value = wordSpoken;
+      wordSpoken.value = result.recognizedWords;
+      recognizedWords.value = wordSpoken.value;
       print('Recognized words: $wordSpoken'); // Print the recognized words
     } catch (e) {
       print('Error processing speech result: $e');
@@ -172,13 +170,10 @@ class GestureVideoController extends GetxController {
       ResolutionPreset.high,
     );
 
-    await cameraController.initialize();
-    isCameraInitialized = true;
-
     try {
       await cameraController.initialize();
       print("Camera initialized successfully");
-      isCameraInitialized = true;
+      isCameraInitialized.value = true;
 
       // Introduce a delay before starting image stream to avoid immediate gesture detection
       await Future.delayed(const Duration(seconds: 2));
@@ -186,21 +181,21 @@ class GestureVideoController extends GetxController {
       // Display the camera feed for debugging
       if (cameraController.value.isInitialized) {
         print("Camera feed is ready to be displayed.");
-      }
 
-      cameraController.startImageStream((imageStream) {
-        if (!isDetecting) {
-          isDetecting = true;
-          cameraImage = imageStream;
-          runModelOnFrame();
-        }
-      });
+        cameraController.startImageStream((imageStream) {
+          if (!isDetecting.value) {
+            isDetecting.value = true;
+            cameraImage = imageStream;
+            runModelOnFrame();
+          }
+        });
+      }
 
       return true; // Return true to indicate successful initialization
     } catch (e) {
       print("Error initializing camera: $e");
       return false;
-    } // Return true to indicate successful initialization
+    }
   }
 
   loadModel() async {
@@ -215,107 +210,104 @@ class GestureVideoController extends GetxController {
     }
   }
 
-  void runModelOnFrame() async {
-    if (cameraImage != null) {
-      try {
-        var recognitions = await Tflite.runModelOnFrame(
-          bytesList: cameraImage!.planes.map((plane) {
-            return plane.bytes;
-          }).toList(),
-          imageHeight: cameraImage!.height,
-          imageWidth: cameraImage!.width,
-          imageMean: 127.5,
-          imageStd: 127.5,
-          rotation: 90,
-          numResults: 2,
-          threshold: 0.1, // Lower threshold to catch more gestures
-          asynch: true,
-        );
+ void runModelOnFrame() async {
+  if (cameraImage != null) {
+    try {
+      var recognitions = await Tflite.runModelOnFrame(
+        bytesList: cameraImage!.planes.map((plane) {
+          return plane.bytes;
+        }).toList(),
+        imageHeight: cameraImage!.height,
+        imageWidth: cameraImage!.width,
+        imageMean: 127.5,
+        imageStd: 127.5,
+        rotation: 90,
+        numResults: 2,
+        threshold: 0.7,
+        asynch: true,
+      );
 
-        print('Recognitions: $recognitions'); // Print all recognitions
+      print(recognitions);
 
-        if (recognitions != null && recognitions.isNotEmpty) {
-          recognitions.forEach((element) {
-            int index =
-                element['index']!; // Assuming your model outputs an index
-            String label = labelIndexToLabel[index] ?? 'unknown gesture';
-            double confidence = element['confidence'];
-            print('Gesture recognized: $label');
+      if (recognitions != null && recognitions.isNotEmpty) {
+        for (var element in recognitions) {
+          int index = element['index']!;
+          String label = labelIndexToLabel[index] ?? 'unknown gesture';
+          double confidence = element['confidence'];
+          print('Gesture recognized: $label with confidence: $confidence');
 
-            // Removed play detection logic here
+          if (label == 'pause') {
+            if (confidence > 0.8 && !ttsMessageSent.value && isVideoPlaying.value) {
+              isGestureDetected.value = true;
+              ttsMessageSent.value = true;
 
-            if (label == 'play' && confidence > 0.8 && !playGestureDetected) {
-              pausedetecting = false;
-              playGestureDetected = true;
+              // 1. Pause the video
+              videoController.pause();
+              isVideoPlaying.value = false;
+              print('Video paused');
 
+              // 2. Show snackbar immediately after pausing
+              Get.snackbar(
+                '', '',
+                snackPosition: SnackPosition.BOTTOM,
+                boxShadows: [
+                  BoxShadow(
+                    color: Colors.black26,
+                    spreadRadius: 1,
+                    blurRadius: 10,
+                    offset: Offset(0, 3)
+                  )
+                ],
+                animationDuration: Duration(milliseconds: 500),
+                forwardAnimationCurve: Curves.easeInOut,
+                reverseAnimationCurve: Curves.easeOut,
+                backgroundColor: Color.fromRGBO(167, 181, 185, 53),
+                duration: Duration(seconds: 25),
+                isDismissible: true,
+                borderRadius: 10,
+                margin: EdgeInsets.all(10),
+                messageText: Container(
+                  width: double.infinity,
+                  height: MediaQuery.of(Get.context!).size.height * 0.4,
+                  child: SnackbarContent(),
+                ),
+              );
+
+              // 3. Speak the greeting
+              await speakMessage('Hello, how can I help you?');
+
+              // 4. Start listening and wait for it to complete
+              await _startListening();
+
+              // 5. Speak the longer message
+              await speakMessage(
+                'When light is reflected off a surface, the incident ray strikes the surface at an angle, and the reflected ray bounces off the surface at the same angle, with both the incident and reflected rays lying in the same plane as the normal, which is perpendicular to the surface at the point of incidence');
+            }
+          } else if (label == 'play' && confidence > 0.5) {
+            print('Play gesture detected with confidence $confidence');
+            if (!isVideoPlaying.value) {
               videoController.play();
               isVideoPlaying.value = true;
               print('Video played');
-              startCooldown();
+              isGestureDetected.value = false;
+              ttsMessageSent.value = false;
+            } else {
+              print('Video is already playing');
             }
-
-            // Only detect pause gesture now
-            if (label == 'pause' && confidence > 0.8 && !ttsmessagesent) {
-              pausedetecting = true;
-              pauseGestureDetected = true;
-              speakMessage('hello how can i help you');
-              ttsmessagesent = true;
-
-              _startListening();
-            }
-
-            // Control the video based on detected gestures
-            if (pausedetecting && isVideoPlaying.value) {
-              videoController.pause();
-              isVideoPlaying.value = false;
-              isGestureDetected = true;
-              print('Video paused');
-
-              startCooldown();
-              Get.snackbar('', '',
-                  snackPosition: SnackPosition.BOTTOM,
-                  boxShadows: [
-                    BoxShadow(
-                        color: Colors.black26,
-                        spreadRadius: 1,
-                        blurRadius: 10,
-                        offset: Offset(0, 3))
-                  ],
-                  animationDuration: Duration(milliseconds: 500),
-                  forwardAnimationCurve: Curves.easeInOut,
-                  reverseAnimationCurve: Curves.easeOut,
-                  backgroundColor: Color.fromRGBO(167, 181, 185, 53),
-                  duration: Duration(seconds: 10),
-                  isDismissible: true,
-                  borderRadius: 10,
-                  margin: EdgeInsets.all(10),
-                  messageText: Container(
-                    width: double.infinity,
-                    height: MediaQuery.of(Get.context!).size.height * 0.4,
-                    child: SnackbarContent(),
-                  ));
-            }
-          });
-        } else {
-          isGestureDetected = false;
+          }
         }
-      } catch (e) {
-        print('Error running model: $e');
-      } finally {
-        isDetecting = false;
+      } else {
+        isGestureDetected.value = false;
       }
-    } else {
-      print('Camera image is null');
-      isDetecting = false;
+      isDetecting.value = false;
+    } catch (e) {
+      print('Error running model: $e');
     }
+  } else {
+    print('Camera image is null');
+    isDetecting.value = false;
   }
-
-  void startCooldown() {
-    isCooldown = true;
-    Future.delayed(Duration(seconds: cooldownDuration), () {
-      isCooldown = false;
-    });
-  }
+}
 
   void initializeVideoPlayer() {
     videoController = VideoPlayerController.asset('assets/video1.mp4');
@@ -330,7 +322,7 @@ class GestureVideoController extends GetxController {
       videoController.setLooping(true);
       isVideoInitialized.value = true;
       videoController.play();
-      update();
+      isVideoPlaying.value = true;
     });
   }
 
@@ -342,7 +334,6 @@ class GestureVideoController extends GetxController {
       videoController.play();
       isVideoPlaying.value = true;
     }
-    update();
   }
 
   @override
@@ -354,4 +345,6 @@ class GestureVideoController extends GetxController {
     Tflite.close();
     super.onClose();
   }
+
+  bool get isPlaying => videoController.value.isPlaying;
 }

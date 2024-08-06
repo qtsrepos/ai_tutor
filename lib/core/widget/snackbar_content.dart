@@ -1,97 +1,86 @@
-import 'package:ai_tutor/core/view_models/gesture_controller.dart';
+import 'package:ai_tutor/screens/home/controllers/gesture_controller.dart';
 import 'package:avatar_glow/avatar_glow.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 class SnackbarContent extends StatelessWidget {
-  SnackbarContent({
-    super.key,
-  });
+  SnackbarContent({super.key});
 
-  final GestureVideoController videoPlayerController = Get.find();
+  final videoPlayerController = Get.put(GestureVideoController());
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: EdgeInsets.all(20),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Column(
-            children: [
-              SizedBox(
-                height: 50,
-              ),
-              Obx(
-                () => AvatarGlow(
-                  glowColor: videoPlayerController.isTtsActive.value
-                      ? Color.fromRGBO(6, 172, 255, 100)
-                      : Color.fromRGBO(6, 172, 255, 100),
-                  duration: const Duration(milliseconds: 2000),
-                  // repeat: true,
-                  glowCount: 2,
-                  startDelay: const Duration(milliseconds: 100),
-                  animate: videoPlayerController.isTtsActive.value , 
-                  child: CircleAvatar(
-                    backgroundColor: Colors.white,
-                    radius: 50.0,
-                    child: Obx(
-                      () => Icon(
-                        Icons.person,
-                        size: 50,
-                        color: videoPlayerController.isTtsActive.value
-                            ? Color.fromRGBO(6, 172, 255, 100)
-                            : Color.fromRGBO(6, 172, 255, 100),
-                      ),
-                    ),
-                  ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildAvatarColumn(
+                  isActive: videoPlayerController.isTtsActive,
+                  icon: Icons.person,
+                  color: Color.fromRGBO(6, 172, 255, 100),
                 ),
-              ),
-            ],
-          ),
-          SizedBox(
-            width: 60,
-          ),
-          Column(children: [
-            SizedBox(
-              height: 50,
-            ),
-            Obx(
-              () => AvatarGlow(
-                
-                glowColor: videoPlayerController.isSstActive.value
-                    ? Color.fromRGBO(32, 193, 148, 100)
-                    : Color.fromRGBO(32, 193, 148, 100),
-                duration: const Duration(milliseconds: 2000),
-                // repeat: true,
-                glowCount: 2,
-                startDelay: const Duration(milliseconds: 100),
-                animate: videoPlayerController.isSstActive.value,
-                child: CircleAvatar(
-                  backgroundColor: Colors.white,
-                  radius: 50.0,
-                  child: Obx(
-                    () => Icon(Icons.mic,
-                        size: 50,
-                        color: videoPlayerController.isSstActive.value
-                            ? Color.fromRGBO(32, 193, 148, 100)
-                            : Color.fromRGBO(32, 193, 148, 100)),
-                  ),
+                SizedBox(width: 60),
+                _buildAvatarColumn(
+                  isActive: videoPlayerController.isSstActive,
+                  icon: Icons.mic,
+                  color: Color.fromRGBO(32, 193, 148, 100),
                 ),
+              ],
+            ),
+            SizedBox(height: 20),
+            Obx(() => Container(
+              constraints: BoxConstraints(maxWidth: 250),
+              child: Text(
+                videoPlayerController.recognizedWords.value,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 3,
               ),
-            ),
-            SizedBox(
-              height: 20,
-            ),
-            Obx(() => Text(
-                  videoPlayerController.recognizedWords.value,
-                  style: TextStyle(
-                    fontSize: 19,
-                  ),
-                ))
-          ]),
-        ],
+            )),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildAvatarColumn({
+    required RxBool isActive,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Obx(
+          () => AvatarGlow(
+            glowColor: color,
+            duration: const Duration(milliseconds: 2000),
+            glowCount: 2,
+            startDelay: const Duration(milliseconds: 100),
+            animate: isActive.value,
+            child: CircleAvatar(
+              backgroundColor: Colors.white,
+              radius: 40.0,
+              child: Obx(
+                () => Icon(
+                  icon,
+                  size: 40,
+                  color: isActive.value ? color : color.withOpacity(0.5),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

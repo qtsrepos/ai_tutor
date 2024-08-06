@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:ai_tutor/core/view_models/gesture_controller.dart';
+import 'package:ai_tutor/screens/home/controllers/gesture_controller.dart';
 import 'package:ai_tutor/core/widget/controls_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -34,11 +34,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     });
   }
 
+  final videoPlayerController = Get.put(GestureVideoController());
+
   @override
   Widget build(BuildContext context) {
-    final GestureVideoController videoPlayerController =
-        Get.put(GestureVideoController());
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Video Player with Gesture Control'),
@@ -89,6 +88,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                       ),
                     ),
                   ),
+                  // Text(
+                  //  // videoPlayerController.label.value,
+
+                  //   style: TextStyle(fontSize: 20),
+                  // )
                   // SizedBox(
                   //   height: 70,
                   // ),
