@@ -47,6 +47,8 @@ dependencies:
   tflite_flutter_helper_plus: ^0.0.2
   image: 3.3.0
   tflite_v2: ^1.0.0
+  http: ^1.2.2
+  either_dart: ^1.0.0
 
 dev_dependencies:
   flutter_test:

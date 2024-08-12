@@ -1,10 +1,14 @@
+import 'dart:convert';
+
+import 'package:ai_tutor/core/api/network_manager.dart';
+import 'package:ai_tutor/core/services/adaptive_dialog.dart';
 import 'package:ai_tutor/core/widget/snackbar_content.dart';
 import 'package:awesome_dialog/awesome_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:get/get.dart';
 import 'package:camera/camera.dart';
-
+import 'package:http/http.dart' as http;
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:tflite_v2/tflite_v2.dart';
@@ -59,37 +63,67 @@ class GestureVideoController extends GetxController {
     }
   }
 
-  Future<void> speakMessage(String message) async {
-  try {
-    isTtsActive.value = true;
-    await flutterTts.speak(message);
-    return Future.delayed(Duration(milliseconds: 500)); // Add a small delay after speaking
-  } catch (e) {
-    print('Error speaking message: $e');
-  } finally {
-    isTtsActive.value = false;
-    ttsMessageSent.value = false;
+  Future<String> addApi(String recognizedWords) async {
+    try {
+      final response = await http.post(
+        Uri.parse("https://percapita.qhance.com/app2/chat"),
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: jsonEncode({"message": recognizedWords}),
+      );
+
+      print("API Response Status Code: ${response.statusCode}");
+      print("API Response Body: ${response.body}");
+
+      if (response.statusCode == 200) {
+        final message = jsonDecode(response.body);
+        return message['message'] ?? "No response from API";
+      } else if (response.statusCode == 500) {
+        final errorMessage = jsonDecode(response.body);
+        return errorMessage['detail'] ?? "An error occurred with the API";
+      } else {
+        return "Unexpected response from API";
+      }
+    } catch (e) {
+      print("Error in API call: $e");
+      return "Error: Could not connect to the API";
+    }
   }
-}
+
+  Future<void> speakMessage(String message) async {
+    try {
+      isTtsActive.value = true;
+      await flutterTts.speak(message);
+      return Future.delayed(
+          Duration(milliseconds: 500)); // Add a small delay after speaking
+    } catch (e) {
+      print('Error speaking message: $e');
+    } finally {
+      isTtsActive.value = false;
+      ttsMessageSent.value = false;
+    }
+  }
 
   void initSpeech() async {
     speechEnable.value = await speechToText.initialize();
   }
 
-   _startListening() async {
+  _startListening() async {
     try {
       isSstActive.value = true;
       await Future.delayed(Duration(seconds: 2));
       await speechToText.listen(onResult: _onSpeechResult);
-       await Future.delayed(Duration(seconds: 7));  // Adjust timeout as needed
-    await _stopListening();
+      await Future.delayed(Duration(seconds: 7)); // Adjust timeout as needed
+      await _stopListening();
     } catch (e) {
       print('Error starting speech recognition: $e');
       isSstActive.value = false;
     }
   }
 
-   _stopListening() async {
+  _stopListening() async {
     try {
       await speechToText.stop();
       isSstActive.value = false;
@@ -210,104 +244,121 @@ class GestureVideoController extends GetxController {
     }
   }
 
- void runModelOnFrame() async {
-  if (cameraImage != null) {
-    try {
-      var recognitions = await Tflite.runModelOnFrame(
-        bytesList: cameraImage!.planes.map((plane) {
-          return plane.bytes;
-        }).toList(),
-        imageHeight: cameraImage!.height,
-        imageWidth: cameraImage!.width,
-        imageMean: 127.5,
-        imageStd: 127.5,
-        rotation: 90,
-        numResults: 2,
-        threshold: 0.7,
-        asynch: true,
-      );
+  void runModelOnFrame() async {
+    if (cameraImage != null) {
+      try {
+        var recognitions = await Tflite.runModelOnFrame(
+          bytesList: cameraImage!.planes.map((plane) {
+            return plane.bytes;
+          }).toList(),
+          imageHeight: cameraImage!.height,
+          imageWidth: cameraImage!.width,
+          imageMean: 127.5,
+          imageStd: 127.5,
+          rotation: 90,
+          numResults: 2,
+          threshold: 0.7,
+          asynch: true,
+        );
 
-      print(recognitions);
+        print(recognitions);
 
-      if (recognitions != null && recognitions.isNotEmpty) {
-        for (var element in recognitions) {
-          int index = element['index']!;
-          String label = labelIndexToLabel[index] ?? 'unknown gesture';
-          double confidence = element['confidence'];
-          print('Gesture recognized: $label with confidence: $confidence');
+        if (recognitions != null && recognitions.isNotEmpty) {
+          for (var element in recognitions) {
+            int index = element['index']!;
+            String label = labelIndexToLabel[index] ?? 'unknown gesture';
+            double confidence = element['confidence'];
+            print('Gesture recognized: $label with confidence: $confidence');
 
-          if (label == 'pause') {
-            if (confidence > 0.8 && !ttsMessageSent.value && isVideoPlaying.value) {
-              isGestureDetected.value = true;
-              ttsMessageSent.value = true;
+            if (label == 'pause') {
+              if (confidence > 0.8 &&
+                  !ttsMessageSent.value &&
+                  isVideoPlaying.value) {
+                isGestureDetected.value = true;
+                ttsMessageSent.value = true;
 
-              // 1. Pause the video
-              videoController.pause();
-              isVideoPlaying.value = false;
-              print('Video paused');
+                // 1. Pause the video
+                videoController.pause();
+                isVideoPlaying.value = false;
+                print('Video paused');
 
-              // 2. Show snackbar immediately after pausing
-              Get.snackbar(
-                '', '',
-                snackPosition: SnackPosition.BOTTOM,
-                boxShadows: [
-                  BoxShadow(
-                    color: Colors.black26,
-                    spreadRadius: 1,
-                    blurRadius: 10,
-                    offset: Offset(0, 3)
-                  )
-                ],
-                animationDuration: Duration(milliseconds: 500),
-                forwardAnimationCurve: Curves.easeInOut,
-                reverseAnimationCurve: Curves.easeOut,
-                backgroundColor: Color.fromRGBO(167, 181, 185, 53),
-                duration: Duration(seconds: 25),
-                isDismissible: true,
-                borderRadius: 10,
-                margin: EdgeInsets.all(10),
-                messageText: Container(
-                  width: double.infinity,
-                  height: MediaQuery.of(Get.context!).size.height * 0.4,
-                  child: SnackbarContent(),
-                ),
-              );
+                // 2. Show snackbar immediately after pausing
+                Get.snackbar(
+                  '',
+                  '',
+                  snackPosition: SnackPosition.BOTTOM,
+                  boxShadows: [
+                    BoxShadow(
+                        color: Colors.black26,
+                        spreadRadius: 1,
+                        blurRadius: 10,
+                        offset: Offset(0, 3))
+                  ],
+                  animationDuration: Duration(milliseconds: 500),
+                  forwardAnimationCurve: Curves.easeInOut,
+                  reverseAnimationCurve: Curves.easeOut,
+                  backgroundColor: Color.fromRGBO(167, 181, 185, 53),
+                  duration: Duration(seconds: 25),
+                  isDismissible: true,
+                  borderRadius: 10,
+                  margin: EdgeInsets.all(10),
+                  messageText: Container(
+                    width: double.infinity,
+                    height: MediaQuery.of(Get.context!).size.height * 0.4,
+                    child: SnackbarContent(),
+                  ),
+                );
 
-              // 3. Speak the greeting
-              await speakMessage('Hello, how can I help you?');
+                // 3. Speak the greeting
+                await speakMessage('Hello, how can I help you?');
 
-              // 4. Start listening and wait for it to complete
-              await _startListening();
+                // 4. Start listening and wait for it to complete
+                await _startListening();
 
-              // 5. Speak the longer message
-              await speakMessage(
-                'When light is reflected off a surface, the incident ray strikes the surface at an angle, and the reflected ray bounces off the surface at the same angle, with both the incident and reflected rays lying in the same plane as the normal, which is perpendicular to the surface at the point of incidence');
-            }
-          } else if (label == 'play' && confidence > 0.5) {
-            print('Play gesture detected with confidence $confidence');
-            if (!isVideoPlaying.value) {
-              videoController.play();
-              isVideoPlaying.value = true;
-              print('Video played');
-              isGestureDetected.value = false;
-              ttsMessageSent.value = false;
-            } else {
-              print('Video is already playing');
+                // 5. Speak the longer message
+                // 5. Send recognized words to API and get response
+                if (recognizedWords.value.isNotEmpty) {
+                  print("Recognized words: ${recognizedWords.value}");
+                  String apiResponse = await addApi(recognizedWords.value);
+                  print("API Response: $apiResponse");
+
+                  // Always speak the API response, whether it's a success message or an error message
+                  await speakMessage(apiResponse);
+                } else {
+                  print("No words recognized");
+                  await speakMessage(
+                      'Im sorry,I didnt catch that. Can you please repeat?');
+                }
+
+// Reset recognized words
+                print("Resetting recognized words");
+                recognizedWords.value = '';
+              }
+            } else if (label == 'play' && confidence > 0.5) {
+              print('Play gesture detected with confidence $confidence');
+              if (!isVideoPlaying.value) {
+                videoController.play();
+                isVideoPlaying.value = true;
+                print('Video played');
+                isGestureDetected.value = false;
+                ttsMessageSent.value = false;
+              } else {
+                print('Video is already playing');
+              }
             }
           }
+        } else {
+          isGestureDetected.value = false;
         }
-      } else {
-        isGestureDetected.value = false;
+        isDetecting.value = false;
+      } catch (e) {
+        print('Error running model: $e');
       }
+    } else {
+      print('Camera image is null');
       isDetecting.value = false;
-    } catch (e) {
-      print('Error running model: $e');
     }
-  } else {
-    print('Camera image is null');
-    isDetecting.value = false;
   }
-}
 
   void initializeVideoPlayer() {
     videoController = VideoPlayerController.asset('assets/video1.mp4');
